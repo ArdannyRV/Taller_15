@@ -17,15 +17,20 @@ class ActivityDetectorService {
 
   StreamSubscription? _accelerometerSubscription;
   
-  // Para la ventana de señal (Peak Detection)
-  final List<double> _magnitudeHistory = [];
-  // Usamos una ventana más amplia (~2 a 3 segundos) para englobar el tiempo entre pasos
-  final int _historySize = 25; 
+  // Histéresis basada en tiempo (Timeouts absolutos)
+  DateTime? _lastRunTime;
+  DateTime? _lastWalkTime;
   
-  // Configuración de umbrales (buscando el pico máximo, no el promedio)
+  // Configuración de umbrales
   static const double _walkingThreshold = 10.5;
   static const double _runningThreshold = 14.0;
-  static const double _fallThreshold = 25.0; // Impacto anómalo
+  // Umbral de caída subido considerablemente para que correr no se sobreponga
+  static const double _fallThreshold = 40.0; 
+
+  // Estado interno para el debounce asimétrico
+  ActivityState _lastEmittedState = ActivityState.stationary;
+  ActivityState _pendingState = ActivityState.stationary;
+  Timer? _debounceTimer;
 
   Stream<void> get fallStream => _fallController.stream;
 
@@ -34,52 +39,76 @@ class ActivityDetectorService {
 
     _accelerometerSubscription = accelerometerEventStream().listen((event) {
       final magnitude = sqrt(pow(event.x, 2) + pow(event.y, 2) + pow(event.z, 2));
+      final now = DateTime.now();
       
       // Detección de caída (Impacto en fuerza G extrema)
       if (magnitude > _fallThreshold) {
         _fallController.add(null);
       }
 
-      // Ventana de señal
-      _magnitudeHistory.add(magnitude);
-      if (_magnitudeHistory.length > _historySize) {
-        _magnitudeHistory.removeAt(0);
+      // Actualizar marcas de tiempo basadas en impactos crudos
+      if (magnitude > _runningThreshold) {
+        _lastRunTime = now;
+        _lastWalkTime = now; // Si la fuerza supera correr, automáticamente supera caminar
+      } else if (magnitude > _walkingThreshold) {
+        _lastWalkTime = now;
       }
 
-      // En lugar de promedio, buscamos el pico (máximo) en la ventana actual.
-      // Esto evita que entre cada paso la magnitud caiga a 9.8 y el estado oscile a "Quieto".
-      final peakMagnitude = _magnitudeHistory.reduce((a, b) => max(a, b));
-
-      // Clasificación de actividad basada en el pico reciente
-      ActivityState newState;
-      if (peakMagnitude < _walkingThreshold) {
-        newState = ActivityState.stationary;
-      } else if (peakMagnitude < _runningThreshold) {
-        newState = ActivityState.walking;
+      // Clasificación de actividad por cercanía temporal (Histéresis)
+      ActivityState calculatedState;
+      if (_lastRunTime != null && now.difference(_lastRunTime!).inMilliseconds < 1500) {
+        // Si el último impacto fuerte fue hace menos de 1.5 segundos
+        calculatedState = ActivityState.running;
+      } else if (_lastWalkTime != null && now.difference(_lastWalkTime!).inMilliseconds < 2000) {
+        // Si el último impacto moderado fue hace menos de 2.0 segundos
+        calculatedState = ActivityState.walking;
       } else {
-        newState = ActivityState.running;
+        // Ha pasado más de 2 segundos sin registrar ningún impacto por encima del umbral
+        calculatedState = ActivityState.stationary;
       }
 
-      // Si el stream aún no contiene el nuevo estado, lo agregamos (el debounce manejará el resto)
-      if (_activityController.value != newState) {
-        _activityController.add(newState);
-      }
+      _handleStateTransition(calculatedState);
+    });
+  }
+
+  // Opción 3: Debounce asimétrico
+  void _handleStateTransition(ActivityState newState) {
+    if (newState == _pendingState) return; 
+    
+    _pendingState = newState;
+    _debounceTimer?.cancel(); 
+
+    if (newState == _lastEmittedState) return;
+
+    // Evaluamos si sube o baja la intensidad (stationary=0, walking=1, running=2)
+    int oldIntensity = _lastEmittedState.index;
+    int newIntensity = newState.index;
+
+    Duration delay;
+    if (newIntensity > oldIntensity) {
+      // Sube la intensidad (Ej. Quieto a Caminar). Reacción casi inmediata.
+      delay = const Duration(milliseconds: 600); 
+    } else {
+      // Baja la intensidad (Ej. Correr a Quieto). Esperamos 2.5 segundos para confirmar.
+      delay = const Duration(milliseconds: 2500);
+    }
+
+    _debounceTimer = Timer(delay, () {
+      _lastEmittedState = newState;
+      _activityController.add(newState);
     });
   }
 
   void stopDetection() {
     _accelerometerSubscription?.cancel();
     _accelerometerSubscription = null;
-    _magnitudeHistory.clear();
+    _lastRunTime = null;
+    _lastWalkTime = null;
+    _debounceTimer?.cancel();
   }
 
-  /// Retorna un stream de actividad que implementa un debounce de 3 segundos
-  /// para evitar reportar falsos positivos de forma repetitiva.
+  /// Retorna un stream de actividad ya debounced internamente
   Stream<ActivityState> get debouncedActivityStream {
-    return _activityController.stream
-        // RxDart debounceTime: Solo emite el estado si se mantiene estable por 3 segundos
-        .debounceTime(const Duration(seconds: 3))
-        // distinct: Evita repetir el estado si no ha cambiado
-        .distinct();
+    return _activityController.stream.distinct();
   }
 }
