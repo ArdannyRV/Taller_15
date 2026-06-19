@@ -6,6 +6,7 @@ import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/pages/login_page.dart';
 import 'features/steps/presentation/widgets/step_counter_widget.dart';
 import 'features/tracking/presentation/widgets/route_map_widget.dart';
+import 'features/activity/presentation/widgets/activity_monitor_widget.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -76,6 +77,8 @@ class HomePage extends StatelessWidget {
         padding: EdgeInsets.all(16),
         child: Column(
           children: [
+            ActivityMonitorWidget(),
+            SizedBox(height: 16),
             StepCounterWidget(),
             SizedBox(height: 16),
             RouteMapWidget(),
