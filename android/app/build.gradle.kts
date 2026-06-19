@@ -1,7 +1,7 @@
 plugins {
-    id "com.android.application"
-    id "kotlin-android"
-    id "dev.flutter.flutter-gradle-plugin"
+    id("com.android.application")
+    id("kotlin-android")
+    id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
@@ -15,7 +15,7 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_1_8
+        jvmTarget = "1.8"
     }
 
     defaultConfig {
@@ -26,14 +26,9 @@ android {
         versionName = flutter.versionName
     }
 
-    // IMPORTANTE: Dependencia de biometría
-    dependencies {
-        implementation "androidx.biometric:biometric:1.1.0"
-    }
-
     buildTypes {
         release {
-            signingConfig = signingConfigs.debug
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 }
@@ -41,3 +36,8 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation("androidx.biometric:biometric:1.1.0")
+}
+
