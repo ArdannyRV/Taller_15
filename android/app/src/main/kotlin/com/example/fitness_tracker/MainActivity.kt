@@ -31,8 +31,6 @@ class MainActivity: FlutterFragmentActivity() {
     // PASO 1: Definir nombre del canal (DEBE coincidir con Dart)
     private val BIOMETRIC_CHANNEL = "com.tuinstituto.fitness/biometric"
     private val ACCELEROMETER_CHANNEL = "com.tuinstituto.fitness/accelerometer"
-    private val GPS_CHANNEL = "com.tuinstituto.fitness/gps"
-    private val LOCATION_PERMISSION_REQUEST_CODE = 1001
 
     // PASO 2: Variables para biometría
     private lateinit var executor: Executor
@@ -83,7 +81,6 @@ class MainActivity: FlutterFragmentActivity() {
             }
         }
         setupAccelerometerChannel(flutterEngine)
-        setupGpsChannel(flutterEngine)
     }
 
     /**
@@ -290,130 +287,4 @@ class MainActivity: FlutterFragmentActivity() {
         }
     }
 
-    private fun setupGpsChannel(flutterEngine: FlutterEngine) {
-        val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
-        var locationListener: LocationListener? = null
-
-        // ═══════════════════════════════════════════════════════════
-        // METHOD CHANNEL - Operaciones puntuales
-        // ═══════════════════════════════════════════════════════════
-        MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            GPS_CHANNEL
-        ).setMethodCallHandler { call, result ->
-            when (call.method) {
-                "isGpsEnabled" -> {
-                    val isEnabled = locationManager.isProviderEnabled(
-                        LocationManager.GPS_PROVIDER
-                    )
-                    result.success(isEnabled)
-                }
-
-                "requestPermissions" -> {
-                    if (hasLocationPermission()) {
-                        result.success(true)
-                    } else {
-                        ActivityCompat.requestPermissions(
-                            this,
-                            arrayOf(
-                                Manifest.permission.ACCESS_FINE_LOCATION,
-                                Manifest.permission.ACCESS_COARSE_LOCATION
-                            ),
-                            LOCATION_PERMISSION_REQUEST_CODE
-                        )
-                        result.success(hasLocationPermission())
-                    }
-                }
-
-                "getCurrentLocation" -> {
-                    if (!hasLocationPermission()) {
-                        result.error("PERMISSION_DENIED", "Sin permisos", null)
-                        return@setMethodCallHandler
-                    }
-
-                    try {
-                        val location = locationManager.getLastKnownLocation(
-                            LocationManager.GPS_PROVIDER
-                        ) ?: locationManager.getLastKnownLocation(
-                            LocationManager.NETWORK_PROVIDER
-                        )
-
-                        if (location != null) {
-                            result.success(locationToMap(location))
-                        } else {
-                            result.error("NO_LOCATION", "No disponible", null)
-                        }
-                    } catch (e: SecurityException) {
-                        result.error("SECURITY_ERROR", e.message, null)
-                    }
-                }
-
-                else -> result.notImplemented()
-            }
-        }
-
-        // ═══════════════════════════════════════════════════════════
-        // EVENT CHANNEL - Stream de ubicaciones
-        // ═══════════════════════════════════════════════════════════
-        EventChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            "$GPS_CHANNEL/stream"
-        ).setStreamHandler(object : EventChannel.StreamHandler {
-
-            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                if (!hasLocationPermission()) {
-                    events?.error("PERMISSION_DENIED", "Sin permisos", null)
-                    return
-                }
-
-                locationListener = object : LocationListener {
-                    override fun onLocationChanged(location: Location) {
-                        // Enviar ubicación a Flutter
-                        events?.success(locationToMap(location))
-                    }
-
-                    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-                    override fun onProviderEnabled(provider: String) {}
-                    override fun onProviderDisabled(provider: String) {}
-                }
-
-                try {
-                    // Solicitar actualizaciones
-                    locationManager.requestLocationUpdates(
-                        LocationManager.GPS_PROVIDER,
-                        1000L,      // cada 1 segundo
-                        0f,         // cualquier distancia
-                        locationListener!!
-                    )
-                } catch (e: SecurityException) {
-                    events?.error("SECURITY_ERROR", e.message, null)
-                }
-            }
-
-            override fun onCancel(arguments: Any?) {
-                locationListener?.let {
-                    locationManager.removeUpdates(it)
-                }
-                locationListener = null
-            }
-        })
-    }
-
-    private fun hasLocationPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-    }
-
-    private fun locationToMap(location: Location): Map<String, Any> {
-        return mapOf(
-            "latitude" to location.latitude,
-            "longitude" to location.longitude,
-            "altitude" to location.altitude,
-            "speed" to location.speed.toDouble(),
-            "accuracy" to location.accuracy.toDouble(),
-            "timestamp" to location.time
-        )
-    }
 }

@@ -22,10 +22,10 @@ class ActivityDetectorService {
   DateTime? _lastWalkTime;
   
   // Configuración de umbrales
-  static const double _walkingThreshold = 10.5;
-  static const double _runningThreshold = 14.0;
+  static const double _walkingThreshold = 13.0;
+  static const double _runningThreshold = 19.0;
   // Umbral de caída subido considerablemente para que correr no se sobreponga
-  static const double _fallThreshold = 40.0; 
+  static const double _fallThreshold = 55.0; 
 
   // Estado interno para el debounce asimétrico
   ActivityState _lastEmittedState = ActivityState.stationary;
@@ -84,14 +84,7 @@ class ActivityDetectorService {
     int oldIntensity = _lastEmittedState.index;
     int newIntensity = newState.index;
 
-    Duration delay;
-    if (newIntensity > oldIntensity) {
-      // Sube la intensidad (Ej. Quieto a Caminar). Reacción casi inmediata.
-      delay = const Duration(milliseconds: 600); 
-    } else {
-      // Baja la intensidad (Ej. Correr a Quieto). Esperamos 2.5 segundos para confirmar.
-      delay = const Duration(milliseconds: 2500);
-    }
+    Duration delay = const Duration(milliseconds: 1500); // 1.5 segundos unificados
 
     _debounceTimer = Timer(delay, () {
       _lastEmittedState = newState;

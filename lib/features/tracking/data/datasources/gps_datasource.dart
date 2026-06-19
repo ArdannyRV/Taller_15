@@ -1,13 +1,10 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
-import '../../../../core/plataform/plataform_channels.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../domain/entities/location_point.dart';
 
-/// DataSource para GPS
-///
-/// EXPLICACIÓN DIDÁCTICA:
-/// - Combina MethodChannel (operaciones puntuales)
-/// - Con EventChannel (stream de ubicaciones)
+/// DataSource para GPS implementado con el plugin Geolocator
 abstract class GpsDataSource {
   Future<LocationPoint?> getCurrentLocation();
   Stream<LocationPoint> get locationStream;
@@ -16,42 +13,55 @@ abstract class GpsDataSource {
 }
 
 class GpsDataSourceImpl implements GpsDataSource {
-  final MethodChannel _methodChannel = const MethodChannel(
-    PlatformChannels.gps
-  );
-
-  final EventChannel _eventChannel = const EventChannel(
-    '${PlatformChannels.gps}/stream'
-  );
-
   @override
   Future<LocationPoint?> getCurrentLocation() async {
     try {
-      final result = await _methodChannel.invokeMethod('getCurrentLocation');
-      if (result != null) {
-        return LocationPoint.fromMap(result as Map<dynamic, dynamic>);
-      }
-      return null;
-    } on PlatformException catch (e) {
-      print('Error obteniendo ubicación: ${e.message}');
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.bestForNavigation,
+      );
+      return LocationPoint(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        altitude: position.altitude,
+        speed: position.speed,
+        accuracy: position.accuracy,
+        timestamp: position.timestamp,
+      );
+    } catch (e) {
+      print('Error obteniendo ubicación: $e');
       return null;
     }
   }
 
   @override
   Stream<LocationPoint> get locationStream {
-    return _eventChannel.receiveBroadcastStream().map((event) {
-      return LocationPoint.fromMap(event as Map<dynamic, dynamic>);
+    return Geolocator.getPositionStream(
+      locationSettings: defaultTargetPlatform == TargetPlatform.android
+          ? AndroidSettings(
+              accuracy: LocationAccuracy.bestForNavigation,
+              distanceFilter: 0,
+              forceLocationManager: false,
+              intervalDuration: const Duration(seconds: 1), // Forzamos 1 segundo
+            )
+          : const LocationSettings(
+              accuracy: LocationAccuracy.bestForNavigation,
+              distanceFilter: 0,
+            ),
+    ).map((position) {
+      return LocationPoint(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        altitude: position.altitude,
+        speed: position.speed,
+        accuracy: position.accuracy,
+        timestamp: position.timestamp,
+      );
     });
   }
 
   @override
   Future<bool> isGpsEnabled() async {
-    try {
-      return await _methodChannel.invokeMethod('isGpsEnabled') ?? false;
-    } on PlatformException {
-      return false;
-    }
+    return await Geolocator.isLocationServiceEnabled();
   }
 
   @override

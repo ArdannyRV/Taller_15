@@ -19,6 +19,7 @@ class _ActivityMonitorWidgetState extends State<ActivityMonitorWidget> {
 
   ActivityState _currentState = ActivityState.stationary;
   bool _isMonitoring = false;
+  bool _isEmergencyActive = false;
 
   @override
   void initState() {
@@ -49,7 +50,11 @@ class _ActivityMonitorWidgetState extends State<ActivityMonitorWidget> {
         setState(() {
           _currentState = state;
         });
-        _voiceService.announceActivity(state);
+        
+        // Mute normal announcements if fall emergency is active
+        if (!_isEmergencyActive) {
+          _voiceService.announceActivity(state);
+        }
       }
     });
 
@@ -74,19 +79,29 @@ class _ActivityMonitorWidgetState extends State<ActivityMonitorWidget> {
     });
   }
 
-  void _handleFallDetected() {
+  Future<void> _handleFallDetected() async {
     // Evitar múltiples diálogos
-    if (ModalRoute.of(context)?.isCurrent != true) return;
+    if (_isEmergencyActive) return;
+
+    setState(() {
+      _isEmergencyActive = true;
+    });
 
     _voiceService.announceFall();
 
-    showDialog(
+    await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
         return const FallEmergencyDialog();
       },
     );
+
+    if (mounted) {
+      setState(() {
+        _isEmergencyActive = false;
+      });
+    }
   }
 
   String _getActivityName(ActivityState state) {
